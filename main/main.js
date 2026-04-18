@@ -1,0 +1,184 @@
+const { app, BrowserWindow, ipcMain, screen, desktopCapturer } = require('electron');
+const path    = require('path');
+const fs      = require('fs');
+const { spawn } = require('child_process');
+const axios   = require('axios');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
+let mainWindow    = null;
+let overlayWindow = null;
+let backendProc   = null;
+
+const BACKEND_URL   = `http://localhost:${process.env.BACKEND_PORT || 3001}`;
+const RENDERER_DEV  = 'http://localhost:5173';
+const RENDERER_PROD = path.join(__dirname, '../renderer/dist/index.html');
+
+function isDev() { return !app.isPackaged; }
+
+// ── Spawn backend ─────────────────────────────────────────────────────────────
+function startBackend() {
+  const serverPath = path.join(__dirname, '../backend/server.js');
+  backendProc = spawn('node', [serverPath], {
+    env: { ...process.env },
+    stdio: 'inherit',
+  });
+  backendProc.on('error', (e) => console.error('[Backend] spawn error:', e));
+  backendProc.on('exit', (code) => console.log('[Backend] exited:', code));
+}
+
+// ── Subscribe to SSE and forward to renderer windows ─────────────────────────
+async function subscribeToBackend() {
+  // Wait a moment for the backend to be ready
+  await new Promise(r => setTimeout(r, 2000));
+  const EventSource = require('./eventSourcePolyfill'); // we'll bundle a small one
+
+  const es = new EventSource(`${BACKEND_URL}/events`);
+
+  es.addEventListener('transcript', (e) => {
+    const data = JSON.parse(e.data);
+    broadcast('transcript-update', data);
+  });
+  es.addEventListener('task', (e) => {
+    const data = JSON.parse(e.data);
+    broadcast('task-detected', data);
+  });
+  es.addEventListener('summary', (e) => {
+    const data = JSON.parse(e.data);
+    broadcast('summary-update', data);
+  });
+  es.addEventListener('status', (e) => {
+    const data = JSON.parse(e.data);
+    broadcast('recording-status', data);
+  });
+}
+
+function broadcast(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed())
+    mainWindow.webContents.send(channel, data);
+  if (overlayWindow && !overlayWindow.isDestroyed())
+    overlayWindow.webContents.send(channel, data);
+}
+
+// ── Main Window ───────────────────────────────────────────────────────────────
+function createMainWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    backgroundColor: '#0e0e10',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  if (isDev()) {
+    mainWindow.loadURL(RENDERER_DEV);
+    // mainWindow.webContents.openDevTools({ mode: 'detach' });
+  } else {
+    mainWindow.loadFile(RENDERER_PROD);
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    if (overlayWindow) overlayWindow.close();
+  });
+}
+
+// ── Overlay Window ────────────────────────────────────────────────────────────
+function createOverlayWindow() {
+  const { width } = screen.getPrimaryDisplay().workAreaSize;
+
+  overlayWindow = new BrowserWindow({
+    width: 340,
+    height: 680,
+    x: width - 360,
+    y: 40,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  if (isDev()) {
+    mainWindow.loadURL(`${RENDERER_DEV}/overlay`);
+  } else {
+    overlayWindow.loadFile(path.join(__dirname, '../renderer/dist/overlay.html'));
+  }
+
+  overlayWindow.on('closed', () => { overlayWindow = null; });
+}
+
+// ── IPC handlers ──────────────────────────────────────────────────────────────
+ipcMain.on('toggle-overlay', () => {
+  if (!overlayWindow) { createOverlayWindow(); return; }
+  overlayWindow.isVisible() ? overlayWindow.hide() : overlayWindow.show();
+});
+
+ipcMain.on('start-recording', async (_e, payload) => {
+  try {
+    await axios.post(`${BACKEND_URL}/recording/start`, payload || {});
+  } catch (err) {
+    console.error('[IPC] start-recording:', err.message);
+  }
+});
+
+ipcMain.on('stop-recording', async () => {
+  try {
+    await axios.post(`${BACKEND_URL}/recording/stop`);
+  } catch (err) {
+    console.error('[IPC] stop-recording:', err.message);
+  }
+});
+
+ipcMain.handle('capture-screenshot', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1280, height: 720 },
+    });
+    if (!sources.length) return null;
+    const img = sources[0].thumbnail.toPNG();
+    const dir = path.join(app.getPath('userData'), 'screenshots');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `ss_${Date.now()}.png`);
+    fs.writeFileSync(filePath, img);
+    // Notify backend to associate with active meeting
+    await axios.post(`${BACKEND_URL}/screenshots`, { filePath }).catch(() => {});
+    return filePath;
+  } catch (err) {
+    console.error('[Screenshot]', err.message);
+    return null;
+  }
+});
+
+ipcMain.on('overlay-drag', (_e, { dx, dy }) => {
+  if (!overlayWindow) return;
+  const [x, y] = overlayWindow.getPosition();
+  overlayWindow.setPosition(x + dx, y + dy);
+});
+
+// ── App lifecycle ─────────────────────────────────────────────────────────────
+app.whenReady().then(async () => {
+  startBackend();
+  createMainWindow();
+  await subscribeToBackend();
+});
+
+app.on('window-all-closed', () => {
+  if (backendProc) backendProc.kill();
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  if (!mainWindow) createMainWindow();
+});

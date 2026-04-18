@@ -1,0 +1,94 @@
+/* Global CSS – matches Stitch design tokens exactly */
+:root {
+  --on-tertiary: #6c0f4d;
+  --secondary: #af88ff;
+  --error-dim: #d73357;
+  --surface-container-high: #1f1f22;
+  --inverse-primary: #4e45e4;
+  --tertiary: #ff9dd1;
+  --on-primary: #1c00a0;
+  --error: #ff6e84;
+  --surface-variant: #262528;
+  --surface-container: #19191c;
+  --surface: #0e0e10;
+  --on-background: #f9f5f8;
+  --surface-bright: #2c2c2f;
+  --surface-dim: #0e0e10;
+  --surface-container-lowest: #000000;
+  --primary-fixed-dim: #8885ff;
+  --primary-fixed: #9795ff;
+  --on-primary-container: #14007e;
+  --surface-container-low: #131315;
+  --on-error: #490013;
+  --inverse-on-surface: #565457;
+  --surface-tint: #a7a5ff;
+  --outline-variant: #48474a;
+  --secondary-container: #6001d1;
+  --on-secondary-container: #e1d0ff;
+  --outline: #767577;
+  --on-secondary: #2b0065;
+  --secondary-dim: #8a4cfc;
+  --on-surface: #f9f5f8;
+  --tertiary-dim: #eb7bba;
+  --background: #0e0e10;
+  --primary: #a7a5ff;
+  --on-surface-variant: #adaaad;
+  --on-error-container: #ffb2b9;
+  --inverse-surface: #fcf8fb;
+  --surface-container-highest: #262528;
+  --error-container: #a70138;
+  --secondary-fixed: #dcc9ff;
+  --primary-dim: #645efb;
+  --primary-container: #9795ff;
+  --on-primary-fixed: #000000;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  background: var(--background);
+  color: var(--on-surface);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 4px; }
+
+/* Utility */
+.glass {
+  background: rgba(38,37,40,0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(72,71,74,0.3);
+}
+
+.ambient-bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.18;
+}
+.ambient-bg .blob1 {
+  position: absolute; top: 0; right: 0;
+  width: 700px; height: 700px;
+  background: var(--secondary-dim);
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  filter: blur(140px);
+  transform: translate(30%, -30%);
+}
+.ambient-bg .blob2 {
+  position: absolute; bottom: 0; left: 0;
+  width: 500px; height: 500px;
+  background: var(--primary-dim);
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  filter: blur(120px);
+  transform: translate(-30%, 30%);
+}
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.animate-pulse { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }

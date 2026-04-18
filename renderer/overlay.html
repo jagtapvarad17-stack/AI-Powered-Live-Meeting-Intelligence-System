@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Observer AI – Overlay</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-tertiary": "#6c0f4d",
+              "secondary": "#af88ff",
+              "error-dim": "#d73357",
+              "surface-container-high": "#1f1f22",
+              "inverse-primary": "#4e45e4",
+              "tertiary": "#ff9dd1",
+              "on-primary": "#1c00a0",
+              "error": "#ff6e84",
+              "surface-variant": "#262528",
+              "surface-container": "#19191c",
+              "surface": "#0e0e10",
+              "on-background": "#f9f5f8",
+              "surface-bright": "#2c2c2f",
+              "surface-dim": "#0e0e10",
+              "surface-container-lowest": "#000000",
+              "primary-fixed-dim": "#8885ff",
+              "primary-fixed": "#9795ff",
+              "on-primary-container": "#14007e",
+              "surface-container-low": "#131315",
+              "on-error": "#490013",
+              "inverse-on-surface": "#565457",
+              "surface-tint": "#a7a5ff",
+              "outline-variant": "#48474a",
+              "secondary-container": "#6001d1",
+              "on-secondary-container": "#e1d0ff",
+              "outline": "#767577",
+              "on-secondary": "#2b0065",
+              "secondary-dim": "#8a4cfc",
+              "on-surface": "#f9f5f8",
+              "tertiary-dim": "#eb7bba",
+              "background": "#0e0e10",
+              "primary": "#a7a5ff",
+              "on-surface-variant": "#adaaad",
+              "on-error-container": "#ffb2b9",
+              "inverse-surface": "#fcf8fb",
+              "surface-container-highest": "#262528",
+              "error-container": "#a70138",
+              "secondary-fixed": "#dcc9ff",
+              "primary-dim": "#645efb",
+              "primary-container": "#9795ff",
+              "on-primary-fixed": "#000000"
+            },
+            fontFamily: {
+              headline: ["Inter", "sans-serif"],
+              body: ["Inter", "sans-serif"],
+              label: ["Inter", "sans-serif"]
+            }
+          }
+        }
+      }
+    </script>
+  </head>
+  <body style="background:transparent;margin:0;padding:0;overflow:hidden;">
+    <div id="overlay-root"></div>
+    <script type="module" src="/src/overlay.jsx"></script>
+  </body>
+</html>
