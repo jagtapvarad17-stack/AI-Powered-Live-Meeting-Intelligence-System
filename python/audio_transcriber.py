@@ -187,6 +187,86 @@ class SmartAudioChunker:
         return None
 
 
+# ── Hallucination Filter ─────────────────────────────────────────────────────
+
+import re
+
+# Common Whisper hallucination phrases
+HALLUCINATION_PHRASES = [
+    "thank you for watching",
+    "thanks for watching",
+    "subscribe to my channel",
+    "please subscribe",
+    "like and subscribe",
+    "see you in the next video",
+    "bye bye",
+    "thank you very much",
+    "the end",
+    "subtitles by",
+    "translated by",
+]
+
+
+def filter_hallucinations(text):
+    """
+    Filter out Whisper hallucinations:
+    - Repeated characters (_____, ......, etc.)
+    - Excessively repeated phrases ("I don't know. I don't know. I don't know.")
+    - Very short or very long garbage text
+    - Common hallucination phrases
+    - Text that's mostly non-alphabetic
+    """
+    if not text:
+        return ""
+
+    # 1. Remove repeated special characters (underscores, dots, dashes, etc.)
+    text = re.sub(r'[_]{3,}', '', text)
+    text = re.sub(r'[.]{4,}', '', text)
+    text = re.sub(r'[-]{4,}', '', text)
+    text = re.sub(r'[*]{3,}', '', text)
+    text = text.strip()
+
+    if not text or len(text) < 3:
+        return ""
+
+    # 2. Check if text is mostly non-alphabetic (garbage)
+    alpha_chars = sum(1 for c in text if c.isalpha() or c.isspace())
+    if len(text) > 5 and alpha_chars / len(text) < 0.5:
+        return ""
+
+    # 3. Detect excessively repeated phrases
+    # Split into sentences/phrases and check for repetition
+    words = text.lower().split()
+    if len(words) >= 6:
+        # Check if more than 60% of the text is one repeated phrase
+        phrase_counts = {}
+        # Check 2-4 word n-grams
+        for n in range(2, min(5, len(words))):
+            for i in range(len(words) - n + 1):
+                phrase = " ".join(words[i:i+n])
+                phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
+
+        for phrase, count in phrase_counts.items():
+            phrase_words = len(phrase.split())
+            # If a phrase repeats more than 3 times in short text, it's likely hallucination
+            if count >= 3 and (count * phrase_words) / len(words) > 0.5:
+                # Keep just one instance
+                text = phrase.capitalize() + "."
+                break
+
+    # 4. Filter known hallucination phrases
+    text_lower = text.lower().strip()
+    for hp in HALLUCINATION_PHRASES:
+        if text_lower == hp or text_lower == hp + ".":
+            return ""
+
+    # 5. Skip very long single-word outputs or very short ones
+    if len(text.split()) < 2 and len(text) < 4:
+        return ""
+
+    return text.strip()
+
+
 # ── Transcription + Sending ──────────────────────────────────────────────────
 
 transcribe_queue = queue.Queue(maxsize=10)
@@ -240,6 +320,11 @@ def transcribe_and_send():
             elapsed = time.time() - t0
 
             if not text or text == last_text:
+                continue
+
+            # ── Hallucination filter ──────────────────────────────
+            text = filter_hallucinations(text)
+            if not text:
                 continue
 
             print(f"  📝 [{elapsed:.1f}s] {text}")

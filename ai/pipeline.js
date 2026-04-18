@@ -5,7 +5,7 @@
  */
 const { EventEmitter } = require('events');
 const { transcribeChunk, resetTranscriberState } = require('./transcriber');
-const { extractTasks }    = require('./taskDetector');
+const { extractTasks, resetTaskDetector } = require('./taskDetector');
 const { generateSummary } = require('./summarizer');
 
 class MeetingPipeline extends EventEmitter {
@@ -27,6 +27,7 @@ class MeetingPipeline extends EventEmitter {
 
     // Reset Whisper transcriber context for new meeting
     resetTranscriberState();
+    resetTaskDetector();
 
     // Rolling summary every 30 seconds
     this._summaryTimer = setInterval(async () => {
@@ -41,14 +42,14 @@ class MeetingPipeline extends EventEmitter {
   }
 
   /**
-   * Handles raw transcript text from local Vosk service
+   * Handles transcript text from local Whisper service
    */
   handleTranscript(text) {
     if (!this.isRunning || !text) return;
 
     console.log('[Pipeline] Received transcript text:', text);
 
-    // Split into sentences
+    // Split into sentences for display
     const sentences = text.match(/[^.!?]+[.!?]*/g) || [text];
     this.fullTranscript += ' ' + text;
 
@@ -58,18 +59,18 @@ class MeetingPipeline extends EventEmitter {
       this.fullTranscript = this.fullTranscript.slice(-15000);
     }
 
-    // Emit each sentence with detected tasks
+    // Emit transcript and detect tasks per sentence
     for (const sentence of sentences) {
       const trimmedSentence = sentence.trim();
       if (!trimmedSentence) continue;
-
-      const tasks = extractTasks(trimmedSentence);
 
       this.emit('transcript', {
         text: trimmedSentence,
         timestamp: new Date().toISOString(),
       });
 
+      // Detect tasks from this sentence
+      const tasks = extractTasks(trimmedSentence);
       for (const task of tasks) {
         this.emit('task', task);
       }
@@ -122,6 +123,7 @@ class MeetingPipeline extends EventEmitter {
 
     // Reset transcriber state
     resetTranscriberState();
+    resetTaskDetector();
     
     // Clear queue on stop
     this.queue = [];
