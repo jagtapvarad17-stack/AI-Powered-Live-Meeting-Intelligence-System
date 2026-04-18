@@ -22,6 +22,7 @@ process.on('unhandledRejection', (reason) => {
 const { connectDB }    = require('../db/connect');
 const { Meeting, Task } = require('../db/models');
 const pipeline         = require('../ai/pipeline');
+const { analyzeImage } = require('../ai/imageAnalyzer');
 
 const app  = express();
 const PORT = process.env.BACKEND_PORT || 3001;
@@ -190,6 +191,16 @@ app.post('/screenshots', async (req, res) => {
       await Meeting.findByIdAndUpdate(activeMeetingId, { $push: { screenshots: filePath } });
     } catch (_) {}
   }
+
+  // Analyze the screenshot and inject visual context into pipeline (always, not gated on isRunning)
+  if (filePath) {
+    analyzeImage(filePath)
+      .then((description) => {
+        if (description) pipeline.addImageContext(description);
+      })
+      .catch((err) => console.error('[Server] Image analysis failed:', err.message));
+  }
+
   res.json({ ok: true });
 });
 
