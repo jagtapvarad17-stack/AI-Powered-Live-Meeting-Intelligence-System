@@ -12,6 +12,7 @@ class MeetingPipeline extends EventEmitter {
   constructor() {
     super();
     this.fullTranscript = '';
+    this.imageContexts = []; // Rolling buffer of screen descriptions (last 5)
     this.isRunning = false;
     this._summaryTimer = null;
     this.queue = [];
@@ -22,19 +23,46 @@ class MeetingPipeline extends EventEmitter {
     if (this.isRunning) return;
     this.isRunning = true;
     this.fullTranscript = '';
+    this.imageContexts = [];
     this.queue = [];
     this.isProcessing = false;
 
-    // Rolling summary every 30 seconds
-    this._summaryTimer = setInterval(async () => {
-      if (!this.fullTranscript.trim()) return;
-      const summary = await generateSummary(this.fullTranscript);
-      if (summary) {
-        this.emit('summary', { text: summary, timestamp: new Date().toISOString() });
-      }
-    }, 30000);
+    // Rolling summary every 20 seconds
+    this._summaryTimer = setInterval(() => this._triggerSummary(), 20000);
 
     console.log('[Pipeline] started');
+  }
+
+  /**
+   * Adds a screen description to the rolling image context buffer.
+   * Keeps only the last 5 descriptions to avoid prompt bloat.
+   * @param {string} description
+   */
+  addImageContext(description) {
+    if (!description) return;
+    this.imageContexts.push(description);
+    if (this.imageContexts.length > 5) {
+      this.imageContexts.shift();
+    }
+    console.log('[Pipeline] Image context added. Buffer size:', this.imageContexts.length);
+    // Always trigger a summary push when new visual context arrives
+    this._triggerSummary();
+  }
+
+  async _triggerSummary() {
+    // Allow summary from images alone even if transcript is empty
+    const hasTranscript = this.fullTranscript.trim().length > 0;
+    const hasImages     = this.imageContexts.length > 0;
+    if (!hasTranscript && !hasImages) return;
+
+    const textForSummary = hasTranscript
+      ? this.fullTranscript
+      : 'No verbal transcript yet — summarize based on the visual context only.';
+
+    const summary = await generateSummary(textForSummary, this.imageContexts);
+    if (summary) {
+      this.emit('summary', { text: summary, timestamp: new Date().toISOString() });
+    }
   }
 
   /**
@@ -121,8 +149,8 @@ class MeetingPipeline extends EventEmitter {
     this.queue = [];
     this.isProcessing = false;
 
-    // Final summary
-    const summary = await generateSummary(this.fullTranscript);
+    // Final summary (include all collected image contexts)
+    const summary = await generateSummary(this.fullTranscript, this.imageContexts);
     this.emit('summary', { text: summary, timestamp: new Date().toISOString(), isFinal: true });
     console.log('[Pipeline] stopped');
 
