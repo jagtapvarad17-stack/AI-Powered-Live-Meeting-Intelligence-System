@@ -10,6 +10,7 @@ export default function Overlay() {
   const [collapsed, setCollapsed]   = useState(false)
   const [dragging, setDragging]     = useState(false)
   const [pos, setPos]               = useState({ x: window.innerWidth - 360, y: 40 })
+  const [imageCaptures, setImageCaptures] = useState([]) // Live AI-analyzed screen captures
   const dragStart = useRef(null)
 
   // Region capture state
@@ -30,6 +31,11 @@ export default function Overlay() {
     es.addEventListener('task', e => setTasks(prev => [JSON.parse(e.data), ...prev]))
     es.addEventListener('summary', e => setSummary(JSON.parse(e.data).text))
     es.addEventListener('status', e => setRecording(JSON.parse(e.data).recording))
+    es.addEventListener('screenshot-analysis', e => {
+      const d = JSON.parse(e.data)
+      setImageCaptures(prev => [d, ...prev].slice(0, 3)) // Keep last 3
+      setCaptureCount(prev => prev + 1)
+    })
     return () => es.close()
   }, [])
 
@@ -46,7 +52,8 @@ export default function Overlay() {
   useEffect(() => {
     if (!window.electronAPI?.onRegionScreenshot) return
     const unsub = window.electronAPI.onRegionScreenshot(() => {
-      setCaptureCount(prev => prev + 1)
+      // Count is now driven by SSE screenshot-analysis event
+      // This is kept as a fallback for non-SSE paths
     })
     return unsub
   }, [])
@@ -345,6 +352,24 @@ export default function Overlay() {
                   {summary || 'Summary updates every 30s during recording.'}
                 </p>
               </div>
+
+              {/* ── Screen Analysis (live, dynamic) ── */}
+              {imageCaptures.length > 0 && (
+                <div style={{ background: 'rgba(59,130,246,0.1)', borderRadius: 12, padding: '12px 14px', border: '1px solid rgba(59,130,246,0.2)' }}>
+                  <h3 style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#93c5fd', fontWeight: 600, marginBottom: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>photo_camera</span>
+                    Screen Analysis ({captureCount} captured)
+                  </h3>
+                  {imageCaptures.map((cap, i) => (
+                    <div key={i} style={{ marginBottom: i < imageCaptures.length - 1 ? 8 : 0, background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 10px' }}>
+                      <p style={{ fontSize: 10, color: '#60a5fa', marginBottom: 4 }}>
+                        ⏱ {new Date(cap.timestamp).toLocaleTimeString()}
+                      </p>
+                      <p style={{ fontSize: 12, color: '#f9f5f8', lineHeight: 1.5 }}>{cap.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* ── Stop button ── */}
               {recording && (

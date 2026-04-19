@@ -19,7 +19,7 @@ const MeetingSchema = new mongoose.Schema({
     topics:        [String],
     decisions:     [String],
     tasks:         [{ task: String, assignee: String }],
-    followUps:     [String],
+    followUps:     [mongoose.Schema.Types.Mixed],
     openQuestions: [String],
     highlights:    [String],
     timeline:      [{ range: String, summary: String }],
@@ -33,7 +33,7 @@ const MeetingSchema = new mongoose.Schema({
     timestamp:   { type: Date, default: Date.now },
   }],
   openQuestions: [{ question: String, timestamp: String }],
-  followUps:     [{ suggestion: String, context: String, timestamp: String }],
+  followUps:     [mongoose.Schema.Types.Mixed],
   status:        { type: String, enum: ['active', 'completed'], default: 'active' },
 });
 

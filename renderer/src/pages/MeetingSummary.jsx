@@ -8,19 +8,85 @@ const getDuration = (start, end) => {
   return ` • ${m}m ${s}s`;
 }
 
+const FollowUpCard = ({ followUp }) => {
+  const isObj = typeof followUp === 'object' && followUp !== null;
+  const title = isObj ? (followUp.title || 'Meeting') : followUp;
+  const date = isObj ? (followUp.resolvedDate || '') : '';
+  const desc = isObj ? (followUp.description || '') : '';
+  const mentionedBy = isObj ? followUp.mentionedBy : '';
+  const participants = isObj ? (followUp.participants || []) : [];
+  const incomplete = isObj ? followUp.isDateIncomplete : false;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', background: 'rgba(16,185,129,0.06)', borderRadius: 12, border: incomplete ? '1px dashed #f59e0b' : '1px solid rgba(16,185,129,0.15)' }}>
+      <div>
+        <p style={{ fontSize: 14, color: 'var(--on-surface)', fontWeight: 600, marginBottom: 4 }}>{title}</p>
+        
+        {date ? (
+          <p style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, marginBottom: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>
+            {new Date(date).toLocaleString()}
+          </p>
+        ) : (
+           <p style={{ fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, marginBottom: 6 }}>
+             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
+             {followUp.relativeTimeContext ? `Needs exact date: "${followUp.relativeTimeContext}"` : 'Needs Clarification (Missing exact date)'}
+           </p>
+        )}
+        
+        {(mentionedBy || participants.length > 0) && (
+           <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 8, fontStyle: 'italic' }}>
+             Suggested by: {mentionedBy || 'Unknown'}. Participants: {participants.join(', ') || 'N/A'}.
+           </p>
+        )}
+
+        {desc && <p style={{ fontSize: 13, color: 'var(--on-surface)', lineHeight: 1.5 }}>{desc}</p>}
+      </div>
+    </div>
+  );
+};
+
+
 export default function MeetingSummary({ meetings, openQuestions = [], followUps = [] }) {
   const [selected, setSelected] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [localSummaries, setLocalSummaries] = useState({}) // Cache loaded summaries { [id]: summaryObj }
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false)
+  const [meetingDetail, setMeetingDetail] = useState(null) // Full meeting detail fetched on selection
+  const [detailLoading, setDetailLoading] = useState(false)
 
   const meeting = selected !== null ? meetings[selected] : null
 
-  // Merge live + persisted insights when a meeting is selected
-  const questions = meeting?.openQuestions?.length ? meeting.openQuestions : openQuestions
-  const followups = meeting?.followUps?.length      ? meeting.followUps      : followUps
+  // When a meeting is selected, fetch its full detail (including imageDescriptions)
+  const handleSelectMeeting = async (index) => {
+    setSelected(index)
+    setIsTranscriptOpen(false)
+    setMeetingDetail(null)  // ← Clear immediately so stale data never bleeds into the new meeting
+    const m = meetings[index]
+    if (!m?._id) return
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`http://localhost:3001/meetings/${m._id}`)
+      const data = await res.json()
+      // Only apply if user hasn't switched away again during fetch
+      setMeetingDetail(prev => prev === null ? data : prev?._id === data._id ? data : prev)
+    } catch (_) {
+      setMeetingDetail(null)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
-  const currentSummary = meeting ? (localSummaries[meeting._id] || meeting.summary) : null;
+  // Merge live + persisted insights when a meeting is selected
+  // Guard: only use meetingDetail data when it belongs to the currently selected meeting
+  const detailMatchesMeeting = meetingDetail?._id === meeting?._id
+  const questions = (detailMatchesMeeting && meetingDetail?.openQuestions?.length) ? meetingDetail.openQuestions : openQuestions
+  const followups = (detailMatchesMeeting && meetingDetail?.followUps?.length)      ? meetingDetail.followUps      : followUps
+
+  // Only use meetingDetail.summary if it belongs to the current meeting (prevents cross-meeting highlight bleed)
+  const currentSummary = meeting
+    ? (localSummaries[meeting._id] || (detailMatchesMeeting ? meetingDetail?.summary : null) || meeting.summary)
+    : null;
 
   async function handleGenerateSummary(force = false) {
     if (!meeting || isGenerating) return;   // guard: no duplicate requests
@@ -65,7 +131,7 @@ export default function MeetingSummary({ meetings, openQuestions = [], followUps
             <p style={{ fontSize: 13, color: 'var(--on-surface-variant)', padding: '20px 0' }}>No meetings yet.</p>
           )}
           {meetings.map((m, i) => (
-            <button key={m._id || i} onClick={() => setSelected(i)} style={{
+            <button key={m._id || i} onClick={() => handleSelectMeeting(i)} style={{
               background: selected === i
                 ? 'linear-gradient(135deg,rgba(79,70,229,0.3),rgba(124,58,237,0.3))'
                 : 'var(--surface-container-low)',
@@ -77,6 +143,13 @@ export default function MeetingSummary({ meetings, openQuestions = [], followUps
               <p style={{ fontSize: 11, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 {new Date(m.startedAt).toLocaleDateString()}
               </p>
+              {/* Screenshot count badge — only shown on currently selected meeting */}
+              {selected === i && (meetingDetail?.imageDescriptions || []).length > 0 && (
+                <p style={{ fontSize: 10, color: '#3b82f6', marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 11 }}>photo_camera</span>
+                  {meetingDetail.imageDescriptions.length} capture{meetingDetail.imageDescriptions.length !== 1 ? 's' : ''}
+                </p>
+              )}
             </button>
           ))}
         </div>
@@ -323,9 +396,11 @@ export default function MeetingSummary({ meetings, openQuestions = [], followUps
 
                 {/* Generated Follow-ups */}
                 {currentSummary.followUps?.length > 0 && sectionCard('rgba(16,185,129,0.08)', 'rgba(16,185,129,0.2)', 'event', 'Follow-ups & Scheduled Meetings',
-                  <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--on-surface)', fontSize: 13, lineHeight: 1.6 }}>
-                    {currentSummary.followUps.map((f, i) => <li key={i}>{f}</li>)}
-                  </ul>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {currentSummary.followUps.map((f, i) => (
+                      <FollowUpCard key={i} followUp={f} />
+                    ))}
+                  </div>
                 )}
               </>
             ) : (
@@ -430,13 +505,24 @@ export default function MeetingSummary({ meetings, openQuestions = [], followUps
               </div>
             )}
 
-            {/* Screen Captures — always shown, backward compatible */}
-            {(meeting.imageDescriptions || []).length > 0 && (
+            {/* Screen Captures — scoped strictly to this meeting's detail */}
+            {detailLoading && (
+              <div style={{ marginTop: 24, padding: '16px', background: 'rgba(59,130,246,0.04)', borderRadius: 14, border: '1px solid rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#3b82f6', animation: 'spin 1.5s linear infinite' }}>sync</span>
+                <p style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>Loading screen captures...</p>
+                <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+              </div>
+            )}
+            {!detailLoading && (meetingDetail?.imageDescriptions || []).length > 0 && (
               <section style={{ marginTop: 24 }}>
                 <h4 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em',
-                  color: 'var(--on-surface-variant)', fontWeight: 600, marginBottom: 12 }}>📸 Screen Captures</h4>
+                  color: 'var(--on-surface-variant)', fontWeight: 600, marginBottom: 12,
+                  display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>photo_camera</span>
+                  Screen Captures ({meetingDetail.imageDescriptions.length})
+                </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {(meeting.imageDescriptions || []).map((img, i) => (
+                  {meetingDetail.imageDescriptions.map((img, i) => (
                     <div key={i} style={{
                       display: 'flex', gap: 16, padding: 16,
                       background: 'rgba(59,130,246,0.06)',

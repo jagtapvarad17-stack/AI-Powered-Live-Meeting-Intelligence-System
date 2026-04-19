@@ -6,6 +6,8 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const Groq = require('groq-sdk');
+const chrono = require('chrono-node');
+const { z } = require('zod');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SUMMARY_MODEL = 'llama-3.3-70b-versatile';
@@ -115,7 +117,9 @@ OUTPUT FORMAT (STRICT JSON ONLY, NO EXTRA TEXT):
   "tasks": [
     { "task": "...", "assignee": "..." }
   ],
-  "followUps": ["..."],
+  "followUps": [
+    { "title": "...", "relativeTimeContext": "...", "description": "...", "confidence": 0.9, "mentionedBy": "...", "participants": ["..."] }
+  ],
   "openQuestions": ["..."],
   "highlights": ["..."],
   "timeline": [
@@ -126,7 +130,13 @@ OUTPUT FORMAT (STRICT JSON ONLY, NO EXTRA TEXT):
 IMPORTANT:
 * overview MUST be a concise AI-generated summary (like OpenAI summary)
 * tasks MUST clearly mention assignee
-* followUps MUST include any future meetings or scheduled discussions
+* followUps MUST include any future meetings or scheduled discussions. Always extract them as structured objects containing:
+   - title
+   - the exact relative time words spoken (e.g. 'next tuesday at 3pm') in "relativeTimeContext"
+   - meeting description
+   - a "confidence" score (0.0 to 1.0, where 0.9=firm meeting, 0.4='maybe we should meet')
+   - "mentionedBy": the name of the person who suggested the meeting (if available)
+   - "participants": array of names who should attend
 * If a section has no data, return an empty array`,
         },
         { role: 'user', content: userContent },
@@ -139,7 +149,63 @@ IMPORTANT:
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('LLM returned no valid JSON block. Raw: ' + raw.slice(0, 200));
     
-    return JSON.parse(match[0]);
+    // ── 1. Basic Parse
+    let structured = JSON.parse(match[0]);
+
+    // ── 2. Zod Defense Layer
+    const followUpSchema = z.object({
+      title: z.string(),
+      relativeTimeContext: z.string().optional().default(''),
+      description: z.string().optional().default(''),
+      confidence: z.number().min(0).max(1),
+      mentionedBy: z.string().optional(),
+      participants: z.array(z.string()).optional()
+    });
+
+    if (structured.followUps && Array.isArray(structured.followUps)) {
+       const validFollowUps = [];
+       for (const item of structured.followUps) {
+         const result = followUpSchema.safeParse(item);
+         if (result.success && result.data.confidence >= 0.6) { // Reject vague references
+           validFollowUps.push(result.data);
+         }
+       }
+       
+       // ── 3. Deduplication Logic
+       const deduped = [];
+       for (const current of validFollowUps) {
+         // Merge if title is roughly identical OR time context is identical and title overlaps
+         const exists = deduped.find(d => 
+           (d.title.toLowerCase() === current.title.toLowerCase()) || 
+           (d.relativeTimeContext.toLowerCase() === current.relativeTimeContext.toLowerCase() && current.title.toLowerCase().includes(d.title.split(' ')[0].toLowerCase()))
+         );
+         if (!exists) deduped.push(current);
+       }
+
+       // ── 4. Chrono Semantic Date Parsing & Fallbacks
+       const referenceDate = data.startedAt ? new Date(data.startedAt) : new Date();
+       
+       structured.followUps = deduped.map(f => {
+          let resolvedDate = null;
+          let endDate = null;
+          let isDateIncomplete = false; // Flag for UI to say "Needs Clarification"
+          
+          if (f.relativeTimeContext) {
+             const parsed = chrono.parse(f.relativeTimeContext, referenceDate, { forwardDate: true })[0];
+             // If Chrono resolves a strict date/time component:
+             if (parsed && parsed.start) {
+               resolvedDate = parsed.start.date().toISOString();
+               if (parsed.end) endDate = parsed.end.date().toISOString();
+             } else {
+               isDateIncomplete = true;
+             }
+          } else {
+             isDateIncomplete = true;
+          }
+          return { ...f, resolvedDate, endDate, isDateIncomplete };
+       });
+    }
+    return structured;
   } catch (err) {
     console.error('[Summarizer] Structured JSON generation error:', err.message);
     return {

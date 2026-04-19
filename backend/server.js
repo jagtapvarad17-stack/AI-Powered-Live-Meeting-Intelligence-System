@@ -208,7 +208,8 @@ app.post('/api/summary/:id', async (req, res) => {
       highlights,
       openQuestions: meeting.openQuestions || [],
       followUps: meeting.followUps || [],
-      timeline
+      timeline,
+      startedAt: meeting.startedAt
     };
 
     const structuredSum = await generateStructuredSummary(reqData);
@@ -233,7 +234,7 @@ app.post('/api/summary/:id', async (req, res) => {
 // ── Meetings ──────────────────────────────────────────────────────────────────
 app.get('/meetings', async (_req, res) => {
   try {
-    const meetings = await Meeting.find().populate('tasks').sort({ startedAt: -1 }).limit(20);
+    const meetings = await Meeting.find().populate('tasks').select('-imageDescriptions').sort({ startedAt: -1 }).limit(20);
     res.json(meetings);
   } catch (err) {
     console.error('[Meetings GET] Error:', err);
@@ -279,6 +280,15 @@ app.post('/screenshots', async (req, res) => {
       .then(async (description) => {
         // Always inject into pipeline for live rolling summary
         if (description) pipeline.addImageContext(description);
+
+        // Broadcast to SSE clients (overlay + renderer) so they can display it live
+        if (description) {
+          broadcast('screenshot-analysis', {
+            description,
+            filePath,
+            timestamp: new Date().toISOString(),
+          });
+        }
 
         // Persist to DB when a meeting is active
         if (activeMeetingId) {
