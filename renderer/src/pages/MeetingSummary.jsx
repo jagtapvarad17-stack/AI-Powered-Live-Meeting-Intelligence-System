@@ -23,7 +23,7 @@ export default function MeetingSummary({ meetings, openQuestions = [], followUps
   const currentSummary = meeting ? (localSummaries[meeting._id] || meeting.summary) : null;
 
   async function handleGenerateSummary(force = false) {
-    if (!meeting) return;
+    if (!meeting || isGenerating) return;   // guard: no duplicate requests
     setIsGenerating(true)
     try {
       const res = await fetch(`http://localhost:3001/api/summary/${meeting._id}`, {
