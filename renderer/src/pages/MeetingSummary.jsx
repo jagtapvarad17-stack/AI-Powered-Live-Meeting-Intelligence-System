@@ -10,37 +10,158 @@ const getDuration = (start, end) => {
 
 const FollowUpCard = ({ followUp }) => {
   const isObj = typeof followUp === 'object' && followUp !== null;
-  const title = isObj ? (followUp.title || 'Meeting') : followUp;
-  const date = isObj ? (followUp.resolvedDate || '') : '';
-  const desc = isObj ? (followUp.description || '') : '';
+  const initialTitle = isObj ? (followUp.title || 'Meeting') : followUp;
+  const initialDate = isObj ? (followUp.resolvedDate || '') : '';
+  const initialEnd = isObj ? (followUp.endDate || '') : '';
+  const initialDesc = isObj ? (followUp.description || (followUp.relativeTimeContext ? `Discussed as: ${followUp.relativeTimeContext}` : '')) : '';
+  
   const mentionedBy = isObj ? followUp.mentionedBy : '';
   const participants = isObj ? (followUp.participants || []) : [];
-  const incomplete = isObj ? followUp.isDateIncomplete : false;
+  const initialIncomplete = isObj ? followUp.isDateIncomplete : false;
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [form, setForm] = useState({ title: initialTitle, start: initialDate, end: initialEnd, description: initialDesc });
+  // States: '' | 'syncing' | 'success' | 'auth_expired' | 'event_failed' | 'needs_clarification'
+  const [status, setStatus] = useState(initialIncomplete ? 'needs_clarification' : '');
+
+  const handleSync = async () => {
+    if (!form.start) {
+      alert("Please provide a valid start time.");
+      return;
+    }
+    setStatus('syncing');
+    try {
+      // Check auth status first
+      const authCheck = await fetch('http://localhost:3001/api/calendar/status');
+      const { authenticated } = await authCheck.json();
+      if (!authenticated) {
+        window.open('http://localhost:3001/auth/google', '_blank', 'width=600,height=700');
+        setStatus('auth_expired');
+        return;
+      }
+
+      // Default end time to start time + 1 hour if blank
+      let finalEnd = form.end;
+      if (form.start && !form.end) {
+        const d = new Date(form.start);
+        d.setHours(d.getHours() + 1);
+        finalEnd = d.toISOString();
+      }
+
+      const res = await fetch('http://localhost:3001/api/calendar/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, end: finalEnd || form.start })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus('success');
+        setTimeout(() => setIsEditing(false), 1500);
+      } else {
+        setStatus(data.error === 'auth_expired' ? 'auth_expired' : 'event_failed');
+      }
+    } catch (e) {
+      setStatus('event_failed');
+    }
+  };
+
+  const toLocalInput = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
+
+  if (!isEditing) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', background: 'rgba(16,185,129,0.06)', borderRadius: 12, border: status==='needs_clarification' ? '1px dashed #f59e0b' : '1px solid rgba(16,185,129,0.15)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+          <div>
+            <p style={{ fontSize: 14, color: 'var(--on-surface)', fontWeight: 600, marginBottom: 4 }}>{initialTitle}</p>
+            {initialDate ? (
+              <p style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, marginBottom: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>
+                {new Date(initialDate).toLocaleString()}
+              </p>
+            ) : (
+               <p style={{ fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, marginBottom: 6 }}>
+                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
+                 Needs Clarification (Missing exact date)
+               </p>
+            )}
+            
+            {/* Speaker Attribution */}
+            {(mentionedBy || participants.length > 0) && (
+               <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 8, fontStyle: 'italic' }}>
+                 Suggested by: {mentionedBy || 'Unknown'}. Participants: {participants.join(', ') || 'N/A'}.
+               </p>
+            )}
+
+            {initialDesc && <p style={{ fontSize: 13, color: 'var(--on-surface)', lineHeight: 1.5 }}>{initialDesc}</p>}
+          </div>
+          <button
+            onClick={() => setIsEditing(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              background: 'transparent', border: '1px solid #10b981', color: '#10b981',
+              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', transition: 'all .15s'
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.background = '#10b981'; e.currentTarget.style.color = '#fff'; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#10b981'; }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit_calendar</span>
+            Schedule Event
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', background: 'rgba(16,185,129,0.06)', borderRadius: 12, border: incomplete ? '1px dashed #f59e0b' : '1px solid rgba(16,185,129,0.15)' }}>
-      <div>
-        <p style={{ fontSize: 14, color: 'var(--on-surface)', fontWeight: 600, marginBottom: 4 }}>{title}</p>
-        
-        {date ? (
-          <p style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, marginBottom: 6 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>
-            {new Date(date).toLocaleString()}
-          </p>
-        ) : (
-           <p style={{ fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, marginBottom: 6 }}>
-             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
-             {followUp.relativeTimeContext ? `Needs exact date: "${followUp.relativeTimeContext}"` : 'Needs Clarification (Missing exact date)'}
-           </p>
-        )}
-        
-        {(mentionedBy || participants.length > 0) && (
-           <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 8, fontStyle: 'italic' }}>
-             Suggested by: {mentionedBy || 'Unknown'}. Participants: {participants.join(', ') || 'N/A'}.
-           </p>
-        )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px', background: 'var(--surface-container-high)', borderRadius: 12, border: '1px solid rgba(16,185,129,0.3)' }}>
+      {/* Dynamic Status Badges */}
+      {status === 'auth_expired' && <div style={{ fontSize: 11, padding: '6px 10px', background: '#fef2f2', color: '#ef4444', borderRadius: 6, border: '1px solid #ef4444' }}>Auth Expired! Need to reconnect Google.</div>}
+      {status === 'event_failed' && <div style={{ fontSize: 11, padding: '6px 10px', background: '#fef2f2', color: '#ef4444', borderRadius: 6, border: '1px solid #ef4444' }}>Event Creation Failed. Check console.</div>}
+      {status === 'needs_clarification' && <div style={{ fontSize: 11, padding: '6px 10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', borderRadius: 6, border: '1px dashed #f59e0b' }}>AI couldn't extract an exact time from "{followUp.relativeTimeContext}". Please select one below.</div>}
 
-        {desc && <p style={{ fontSize: 13, color: 'var(--on-surface)', lineHeight: 1.5 }}>{desc}</p>}
+      <input 
+        value={form.title} onChange={e => setForm({...form, title: e.target.value})}
+        style={{ background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: 16, fontWeight: 600, outline: 'none', paddingBottom: 4 }}
+        placeholder="Event Title"
+      />
+      <div style={{ display: 'flex', gap: 12 }}>
+        <input 
+          type="datetime-local" 
+          value={toLocalInput(form.start)} 
+          onChange={e => setForm({...form, start: e.target.value ? new Date(e.target.value).toISOString() : ''})}
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: 8, padding: '6px 10px', flex: 1 }}
+        />
+        <span style={{color: 'var(--on-surface-variant)', alignSelf: 'center'}}>to</span>
+        <input 
+          type="datetime-local" 
+          value={toLocalInput(form.end)} 
+          onChange={e => setForm({...form, end: e.target.value ? new Date(e.target.value).toISOString() : ''})}
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: 8, padding: '6px 10px', flex: 1 }}
+        />
+      </div>
+      <textarea 
+        value={form.description} onChange={e => setForm({...form, description: e.target.value})}
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--on-surface)', borderRadius: 8, padding: 10, minHeight: 60, fontSize: 13, resize: 'vertical' }}
+        placeholder="Event Description..."
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+        <button onClick={() => setIsEditing(false)} style={{ background: 'transparent', color: 'var(--on-surface)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: '6px 12px' }}>Cancel</button>
+        <button 
+          onClick={handleSync}
+          disabled={status === 'syncing' || status === 'success'}
+          style={{ background: status === 'success' ? '#10b981' : '#10b981', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          {status === 'syncing' ? <><span className="material-symbols-outlined" style={{fontSize: 14}}>sync</span> Syncing...</> : 
+           status === 'success' ? <><span className="material-symbols-outlined" style={{fontSize: 14}}>check</span> Synced!</> : 
+           <><span className="material-symbols-outlined" style={{fontSize: 14}}>cloud_sync</span> Confirm Sync</>}
+        </button>
       </div>
     </div>
   );

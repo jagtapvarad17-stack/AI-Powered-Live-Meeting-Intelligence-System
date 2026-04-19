@@ -25,12 +25,14 @@ const pipeline         = require('../ai/pipeline');
 const { analyzeImage } = require('../ai/imageAnalyzer');
 const { removeFiller, extractTopics, extractDecisions, buildTimeline, buildHighlights, deduplicateItems } = require('../ai/dataExtractor');
 const { generateStructuredSummary } = require('../ai/summarizer');
+const calendarRouter = require('./calendar');
 
 const app  = express();
 const PORT = process.env.BACKEND_PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+app.use(calendarRouter);
 
 // Middleware for raw binary audio chunks
 app.use('/audio', express.raw({ type: 'application/octet-stream', limit: '10mb' }));
